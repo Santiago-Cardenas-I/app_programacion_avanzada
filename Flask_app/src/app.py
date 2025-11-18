@@ -37,54 +37,56 @@ except Exception as e:
     mongo = None
     Sensor1_collection = None
 
-# ----------------------------------------------------
-# 3. ENDPOINTS DE INSERCIÓN Y RECEPCIÓN DE DATOS
-# ----------------------------------------------------
 
-# 🔹 Insertar dato de prueba (GET)
-@app.route('/insert', methods=['GET'])
+
+# -----------------------------------------
+# 🔹 POST /insert  → Recibe datos del ESP32
+# -----------------------------------------
+@app.route('/receive_sensor_data', methods=['POST'])
 def insert_data():
-    """Inserta un registro de prueba."""
     if Sensor1_collection is None:
         return jsonify({"error": "No hay conexión a la base de datos"}), 503
 
-    dato = {
-        # Usamos nombres exactos para probar: Temperature y Humidity
-        "sensor": "Temperature_Test", 
-        "valor": 20.9,
-        "unidad": "C",
-        "timestamp": datetime.now()
-    }
-    result = Sensor1_collection.insert_one(dato)
-    return jsonify({"mensaje": "Dato agregado", "id": str(result.inserted_id)}), 201
-
-# 🔹 Recibir datos de sensores externos (POST)
-@app.route('/receive_sensor_data', methods=['POST'])
-def receive_sensor_data():
-    """Recibe datos JSON de un sensor externo y los guarda."""
-    if Sensor1_collection is None:
-        return jsonify({"error": "Sin conexión a MongoDB"}), 503
-
     data = request.get_json()
     if not data:
-        return jsonify({"error": "No se proporcionó JSON"}), 400
+        return jsonify({"error": "No se recibió JSON"}), 400
 
+    # Documento EXACTO como manda tu sensor
     doc = {
-        # Es crucial que 'sensor' tenga 'Temperature' o 'Humidity' para Grafana
         "sensor": data.get("sensor", "Unknown"),
-        "valor": data.get("valor", 0),
+        "valor": float(data.get("valor", 0)),
         "unidad": data.get("unidad", "N/A"),
         "timestamp": datetime.now()
     }
-    
-    # Intenta convertir el valor a float si es posible, sino, úsalo como está
-    try:
-        doc["valor"] = float(doc["valor"])
-    except ValueError:
-        pass
 
     result = Sensor1_collection.insert_one(doc)
-    return jsonify({"mensaje": "Dato guardado", "id": str(result.inserted_id)}), 201
+
+    return jsonify({
+        "mensaje": "Dato insertado correctamente",
+        "id": str(result.inserted_id)
+    }), 201
+
+
+# ---------------------------------------------------
+# 🔹 GET /data?sensor=Temperature  → Datos para Grafana
+# ---------------------------------------------------
+@app.route('/data', methods=['GET'])
+def get_sensor_data():
+
+    sensor_type = request.args.get("sensor", "").strip().capitalize()
+
+    if not sensor_type:
+        return jsonify({"error": "Debe enviar ?sensor=Temperature o Humidity"}), 400
+
+    if Sensor1_collection is None:
+        return jsonify({"error": "No hay conexión a MongoDB"}), 503
+
+    datos = list(Sensor1_collection.find(
+        {"sensor": sensor_type},
+        {"_id": 0}
+    ))
+
+    return jsonify(datos), 200
 
 # ----------------------------------------------------
 # 4. ENDPOINTS PARA GRAFANA (SIMPLE JSON API)
@@ -220,6 +222,8 @@ def json_api_data():
     except Exception as e:
         print(f"Error en el endpoint JSON API: {e}")
         return jsonify({"error": str(e)}), 500
+    
+
     
 if __name__ == '__main__':
     # Usar host='0.0.0.0' es crucial si se ejecuta dentro de un contenedor o para acceso externo
