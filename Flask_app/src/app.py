@@ -43,28 +43,65 @@ except Exception as e:
 # 🔹 POST /insert  → Recibe datos del ESP32
 # -----------------------------------------
 @app.route('/receive_sensor_data', methods=['POST'])
+def receive_sensor_data():
+    if Sensor1_collection is None:
+        
+        return jsonify({"error": "La conexión a la base de datos no está establecida."}), 503
+
+    try:
+        # Obtener los datos JSON
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No se proporcionó un payload JSON"}), 400
+
+        
+        sensor_type = data.get('sensor_type')
+        value = data.get('value')
+        unit = data.get('unit', 'N/A') 
+
+        if sensor_type is None or value is None:
+            return jsonify({"error": "Faltan campos obligatorios: 'sensor_type' o 'value'"}), 400
+
+        
+        doc_to_insert = {
+            "sensor": sensor_type,
+            "valor": value,
+            "unidad": unit,
+            "timestamp": datetime.now() 
+        }
+
+        
+        result = Sensor1_collection.insert_one(doc_to_insert)
+
+
+        return jsonify({
+            "status": "success",
+            "message": "Dato de sensor recibido y guardado exitosamente.",
+            "id_mongo": str(result.inserted_id),
+            "data_received": doc_to_insert
+        }), 201
+    except Exception as e:
+        print(f"Error al procesar los datos del sensor: {e}")
+        return jsonify({"status": "error", "message": f"Error interno del servidor: {e}"}), 500
+
+
+
+@app.route('/insert', methods=['GET'])
 def insert_data():
+    """Inserta un registro de prueba."""
     if Sensor1_collection is None:
         return jsonify({"error": "No hay conexión a la base de datos"}), 503
 
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No se recibió JSON"}), 400
-
-    # Documento EXACTO como manda tu sensor
-    doc = {
-        "sensor": data.get("sensor", "Unknown"),
-        "valor": float(data.get("valor", 0)),
-        "unidad": data.get("unidad", "N/A"),
+    dato = {
+        # Usamos nombres exactos para probar: Temperature y Humidity
+        "sensor": "Temperature_Test", 
+        "valor": 20.9,
+        "unidad": "C",
         "timestamp": datetime.now()
     }
-
-    result = Sensor1_collection.insert_one(doc)
-
-    return jsonify({
-        "mensaje": "Dato insertado correctamente",
-        "id": str(result.inserted_id)
-    }), 201
+    result = Sensor1_collection.insert_one(dato)
+    return jsonify({"mensaje": "Dato agregado", "id": str(result.inserted_id)}), 201
 
 
 # ---------------------------------------------------
@@ -222,6 +259,8 @@ def json_api_data():
     except Exception as e:
         print(f"Error en el endpoint JSON API: {e}")
         return jsonify({"error": str(e)}), 500
+    
+    
     
 
     
