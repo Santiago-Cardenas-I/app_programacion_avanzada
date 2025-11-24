@@ -6,17 +6,18 @@ from datetime import datetime
 from dateutil import parser
 from collections import defaultdict
 
+
 # ----------------------------------------------------
-# 1. CONFIGURACIÓN INICIAL
+# 1. CONFIGURACIÓN
 # ----------------------------------------------------
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(dotenv_path)
 
-# URI Mongo
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://admin:admin123@mongo:27017/proyecto_db?authSource=admin")
+MONGO_URI = os.getenv("MONGO_URI")
 
 app = Flask(__name__)
 app.config["MONGO_URI"] = MONGO_URI
+
 
 # ----------------------------------------------------
 # 2. CONEXIÓN A MONGODB
@@ -24,16 +25,16 @@ app.config["MONGO_URI"] = MONGO_URI
 try:
     mongo = PyMongo(app)
     Sensor1_collection = mongo.db.Sensor1
-    print("✅ Conexión a MongoDB establecida.")
     Sensor1_collection.find_one()
+    print("Conectado a MongoDB Atlas")
 except Exception as e:
-    print(f"❌ Error al conectar: {e}")
+    print("Error Mongo:", e)
     mongo = None
     Sensor1_collection = None
 
 
 # ----------------------------------------------------
-# POST /receive_sensor_data (ESP32)
+# POST → ESP32 ENVÍA DATOS AQUÍ
 # ----------------------------------------------------
 @app.route('/receive_sensor_data', methods=['POST'])
 def receive_sensor_data():
@@ -46,12 +47,12 @@ def receive_sensor_data():
         if not data:
             return jsonify({"error": "No JSON recibido"}), 400
 
-        sensor_type = data.get('sensor_type')
-        value = data.get('value')
-        unit = data.get('unit', 'N/A')
+        sensor_type = data.get("sensor_type")
+        value = data.get("value")
+        unit = data.get("unit", "")
 
         if sensor_type is None or value is None:
-            return jsonify({"error": "Faltan campos"}), 400
+            return jsonify({"error": "Campos incompletos"}), 400
 
         doc = {
             "sensor": sensor_type,
@@ -64,31 +65,12 @@ def receive_sensor_data():
 
         return jsonify({
             "status": "success",
-            "id_mongo": str(result.inserted_id),
-            "data_received": doc
+            "id": str(result.inserted_id),
+            "saved": doc
         }), 201
 
     except Exception as e:
-        print("Error:", e)
         return jsonify({"error": str(e)}), 500
-
-
-# ----------------------------------------------------
-# GET /insert (prueba)
-# ----------------------------------------------------
-@app.route('/insert', methods=['GET'])
-def insert_data():
-    if Sensor1_collection is None:
-        return jsonify({"error": "BD no disponible"}), 503
-
-    dato = {
-        "sensor": "Temperature_Test",
-        "valor": 20.9,
-        "unidad": "C",
-        "timestamp": datetime.now()
-    }
-    result = Sensor1_collection.insert_one(dato)
-    return jsonify({"mensaje": "Agregado", "id": str(result.inserted_id)}), 201
 
 
 # ----------------------------------------------------
@@ -99,10 +81,7 @@ def get_sensor_data():
     sensor_type = request.args.get("sensor", "").strip()
 
     if not sensor_type:
-        return jsonify({"error": "Debe usar ?sensor=Temperature"}), 400
-
-    if Sensor1_collection is None:
-        return jsonify({"error": "BD no disponible"}), 503
+        return jsonify({"error": "Debe usar ?sensor=XXXX"}), 400
 
     datos = list(Sensor1_collection.find(
         {"sensor": sensor_type},
@@ -113,112 +92,89 @@ def get_sensor_data():
 
 
 # ----------------------------------------------------
-# ENDPOINTS GRAFANA SIMPLE JSON
+# ENDPOINTS PARA GRAFANA (Simple JSON Plugin)
 # ----------------------------------------------------
-@app.route('/', methods=['GET'])
-def root_path():
-    return 'OK', 200
+@app.route('/')
+def root():
+    return "OK", 200
 
 
 @app.route('/search', methods=['POST'])
 def search_metrics():
-    # 🔹 MÉTRICAS DISPONIBLES
-    metrics = [
+    #TODOS LOS SENSORES REGISTRADOS
+    return jsonify([
         "Temperature",
         "Humidity",
         "MQ135_raw",
-        "Air_quality"
-    ]
-    return jsonify(metrics)
+        "Air_quality",
+        "Rain_Value",
+        "Rain_State"
+    ])
 
 
 @app.route('/query', methods=['POST'])
 def query_data():
-    if Sensor1_collection is None:
-        return jsonify({"error": "BD no disponible"}), 503
-
-    req_data = request.get_json(silent=True)
-
-    if not req_data or 'range' not in req_data or 'targets' not in req_data:
-        return jsonify({"error": "Solicitud inválida"}), 400
+    req_data = request.get_json()
 
     try:
-        time_from = parser.parse(req_data['range']['from'])
-        time_to = parser.parse(req_data['range']['to'])
+        t_from = parser.parse(req_data['range']['from'])
+        t_to = parser.parse(req_data['range']['to'])
         targets = req_data['targets']
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    except:
+        return jsonify({"error": "Solicitud inválida"}), 400
 
-    response_data = []
+    response = []
 
-    for target_info in targets:
-        metric_name = target_info['target']
+    for target in targets:
+        metric = target['target']
         datapoints = []
 
-        query_filter = {
-            "timestamp": {'$gte': time_from, '$lte': time_to},
-            "sensor": metric_name
-        }
-
-        projection = {"valor": 1, "timestamp": 1, "_id": 0}
-
-        cursor = Sensor1_collection.find(query_filter, projection).sort("timestamp", 1)
+        cursor = Sensor1_collection.find(
+            {
+                "timestamp": {"$gte": t_from, "$lte": t_to},
+                "sensor": metric
+            },
+            {"valor": 1, "timestamp": 1, "_id": 0}
+        ).sort("timestamp", 1)
 
         for doc in cursor:
             try:
-                value = float(doc['valor'])
-                ts = int(doc['timestamp'].timestamp() * 1000)
-                datapoints.append([value, ts])
+                ts = int(doc["timestamp"].timestamp() * 1000)
+                datapoints.append([float(doc["valor"]), ts])
             except:
                 continue
 
-        response_data.append({
-            "target": metric_name,
+        response.append({
+            "target": metric,
             "datapoints": datapoints
         })
 
-    return jsonify(response_data)
+    return jsonify(response)
 
 
 # ----------------------------------------------------
-# JSON API PARA GRAFANA PLUGIN
+# JSON PARA GRAFANA JSON API
 # ----------------------------------------------------
-@app.route('/json_api_data', methods=['GET', 'POST'])
+@app.route('/json_api_data', methods=['GET'])
 def json_api_data():
-    if Sensor1_collection is None:
-        return jsonify({"error": "BD no disponible"}), 503
+    cursor = Sensor1_collection.find(
+        {},
+        {"sensor": 1, "valor": 1, "timestamp": 1, "_id": 0}
+    ).sort("timestamp", 1)
 
-    try:
-        cursor = Sensor1_collection.find(
-            {},
-            {'sensor': 1, 'valor': 1, 'timestamp': 1, '_id': 0}
-        ).sort("timestamp", 1)
+    grouped = defaultdict(list)
 
-        grouped_data = defaultdict(list)
-
-        for doc in cursor:
-            sensor = doc.get('sensor')
-            valor = doc.get('valor')
-            time_str = doc.get('timestamp').isoformat()
-
-            grouped_data[sensor].append({
-                "time": time_str,
-                "value": float(valor)
-            })
-
-        return jsonify({
-            "Temperature_data": grouped_data["Temperature"],
-            "Humidity_data": grouped_data["Humidity"],
-            "MQ135_raw_data": grouped_data["MQ135_raw"],
-            "Air_quality_data": grouped_data["Air_quality"]
+    for doc in cursor:
+        grouped[doc["sensor"]].append({
+            "time": doc["timestamp"].isoformat(),
+            "value": float(doc["valor"])
         })
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify(grouped)
 
 
 # ----------------------------------------------------
 # RUN
 # ----------------------------------------------------
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
