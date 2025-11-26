@@ -158,12 +158,28 @@ def query_data():
 # ----------------------------------------------------
 # JSON PARA GRAFANA JSON API
 # ----------------------------------------------------
-@app.route('/json_api_data', methods=['GET'])
+@app.route('/json_api_data', methods=['POST', 'GET'])
 def json_api_data():
+    body = {}
+    
+    # Si es POST (Grafana), intentar leer JSON
+    if request.method == "POST":
+        try:
+            body = request.get_json() or {}
+        except:
+            body = {}
+    
+    sensor_filter = body.get("sensor", None)
+    limit = body.get("limit", 500)
+
+    query = {}
+    if sensor_filter:
+        query["sensor"] = sensor_filter
+
     cursor = Sensor1_collection.find(
-        {},
+        query,
         {"sensor": 1, "valor": 1, "timestamp": 1, "_id": 0}
-    ).sort("timestamp", 1)
+    ).sort("timestamp", 1).limit(limit)
 
     grouped = defaultdict(list)
 
@@ -174,6 +190,7 @@ def json_api_data():
         })
 
     return jsonify(grouped)
+
 
 
 
