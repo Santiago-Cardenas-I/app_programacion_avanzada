@@ -101,14 +101,12 @@ def root():
 # ----------------------------------------------------
 @app.route('/search', methods=['POST'])
 def search_metrics():
-
     try:
-        # Obtiene lista única de sensores registrados en la BD
         sensores = Sensor1_collection.distinct("sensor")
-    except Exception as e:
-        return jsonify({"error": f"No se pudieron obtener los sensores: {str(e)}"}), 500
+        return jsonify(sensores)
+    except:
+        return jsonify([])
 
-    return jsonify(sensores), 200
 
 
 # ----------------------------------------------------
@@ -176,6 +174,7 @@ def json_api_data():
         })
 
     return jsonify(grouped)
+
 
 
 # ----------------------------------------------------
