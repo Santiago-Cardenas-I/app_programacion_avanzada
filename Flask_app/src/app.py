@@ -6,7 +6,6 @@ from datetime import datetime
 from dateutil import parser
 from collections import defaultdict
 
-
 # ----------------------------------------------------
 # 1. CONFIGURACIÓN
 # ----------------------------------------------------
@@ -17,7 +16,6 @@ MONGO_URI = os.getenv("MONGO_URI")
 
 app = Flask(__name__)
 app.config["MONGO_URI"] = MONGO_URI
-
 
 # ----------------------------------------------------
 # 2. CONEXIÓN A MONGODB
@@ -31,7 +29,6 @@ except Exception as e:
     print("Error Mongo:", e)
     mongo = None
     Sensor1_collection = None
-
 
 # ----------------------------------------------------
 # POST → ESP32 ENVÍA DATOS AQUÍ
@@ -99,19 +96,24 @@ def root():
     return "OK", 200
 
 
+# ----------------------------------------------------
+# /search → devuelve TODOS los sensores detectados
+# ----------------------------------------------------
 @app.route('/search', methods=['POST'])
 def search_metrics():
-    #TODOS LOS SENSORES REGISTRADOS
-    return jsonify([
-        "Temperature",
-        "Humidity",
-        "MQ135_raw",
-        "Air_quality",
-        "Rain_Value",
-        "Rain_State"
-    ])
+
+    try:
+        # Obtiene lista única de sensores registrados en la BD
+        sensores = Sensor1_collection.distinct("sensor")
+    except Exception as e:
+        return jsonify({"error": f"No se pudieron obtener los sensores: {str(e)}"}), 500
+
+    return jsonify(sensores), 200
 
 
+# ----------------------------------------------------
+# /query → devuelve los valores para el sensor consultado
+# ----------------------------------------------------
 @app.route('/query', methods=['POST'])
 def query_data():
     req_data = request.get_json()
@@ -129,6 +131,7 @@ def query_data():
         metric = target['target']
         datapoints = []
 
+        # Filtrar datos por rango de tiempo y por sensor
         cursor = Sensor1_collection.find(
             {
                 "timestamp": {"$gte": t_from, "$lte": t_to},
@@ -137,6 +140,7 @@ def query_data():
             {"valor": 1, "timestamp": 1, "_id": 0}
         ).sort("timestamp", 1)
 
+        # Convertir valores a formato Grafana
         for doc in cursor:
             try:
                 ts = int(doc["timestamp"].timestamp() * 1000)
@@ -150,6 +154,7 @@ def query_data():
         })
 
     return jsonify(response)
+
 
 
 # ----------------------------------------------------
