@@ -6,9 +6,9 @@ from datetime import datetime
 from dateutil import parser
 from collections import defaultdict
 
-# ----------------------------------------------------
+
 # 1. CONFIGURACIÓN
-# ----------------------------------------------------
+
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(dotenv_path)
 
@@ -17,9 +17,9 @@ MONGO_URI = os.getenv("MONGO_URI")
 app = Flask(__name__)
 app.config["MONGO_URI"] = MONGO_URI
 
-# ----------------------------------------------------
+
 # 2. CONEXIÓN A MONGODB
-# ----------------------------------------------------
+
 try:
     mongo = PyMongo(app)
     Sensor1_collection = mongo.db.Sensor1
@@ -30,9 +30,9 @@ except Exception as e:
     mongo = None
     Sensor1_collection = None
 
-# ----------------------------------------------------
+
 # POST → ESP32 ENVÍA DATOS AQUÍ
-# ----------------------------------------------------
+
 @app.route('/receive_sensor_data', methods=['POST'])
 def receive_sensor_data():
     if Sensor1_collection is None:
@@ -70,9 +70,9 @@ def receive_sensor_data():
         return jsonify({"error": str(e)}), 500
 
 
-# ----------------------------------------------------
+
 # GET /data?sensor=Temperature
-# ----------------------------------------------------
+
 @app.route('/data', methods=['GET'])
 def get_sensor_data():
     sensor_type = request.args.get("sensor", "").strip()
@@ -88,17 +88,17 @@ def get_sensor_data():
     return jsonify(datos), 200
 
 
-# ----------------------------------------------------
+
 # ENDPOINTS PARA GRAFANA (Simple JSON Plugin)
-# ----------------------------------------------------
+
 @app.route('/')
 def root():
     return "OK", 200
 
 
-# ----------------------------------------------------
+
 # /search → devuelve TODOS los sensores detectados
-# ----------------------------------------------------
+
 @app.route('/search', methods=['POST'])
 def search_metrics():
     try:
@@ -109,9 +109,8 @@ def search_metrics():
 
 
 
-# ----------------------------------------------------
 # /query → devuelve los valores para el sensor consultado
-# ----------------------------------------------------
+
 @app.route('/query', methods=['POST'])
 def query_data():
     req_data = request.get_json()
@@ -129,7 +128,6 @@ def query_data():
         metric = target['target']
         datapoints = []
 
-        # Filtrar datos por rango de tiempo y por sensor
         cursor = Sensor1_collection.find(
             {
                 "timestamp": {"$gte": t_from, "$lte": t_to},
@@ -138,7 +136,6 @@ def query_data():
             {"valor": 1, "timestamp": 1, "_id": 0}
         ).sort("timestamp", 1)
 
-        # Convertir valores a formato Grafana
         for doc in cursor:
             try:
                 ts = int(doc["timestamp"].timestamp() * 1000)
@@ -155,20 +152,20 @@ def query_data():
 
 
 
-# ----------------------------------------------------
-# JSON PARA GRAFANA JSON API
-# ----------------------------------------------------
+
+# JSON_NORMAL PARA TEMP/HUM
+
+
 @app.route('/json_api_data', methods=['POST', 'GET'])
 def json_api_data():
     body = {}
-    
-    # Si es POST (Grafana), intentar leer JSON
+
     if request.method == "POST":
         try:
             body = request.get_json() or {}
         except:
             body = {}
-    
+
     sensor_filter = body.get("sensor", None)
     limit = body.get("limit", 500)
 
@@ -189,13 +186,55 @@ def json_api_data():
             "value": float(doc["valor"])
         })
 
+    print("JSON enviado a Grafana (Temp/Hum):", grouped)
+
     return jsonify(grouped)
 
 
 
 
-# ----------------------------------------------------
-# RUN
-# ----------------------------------------------------
+# ENDPOINT SOLO MQ135 (Aire)
+
+
+@app.route('/json_api_air', methods=['POST'])
+def json_api_air():
+    cursor = Sensor1_collection.find(
+        {"sensor": "MQ135_ADC"},
+        {"sensor": 1, "valor": 1, "timestamp": 1, "_id": 0}
+    ).sort("timestamp", 1)
+
+    data = [{
+        "time": doc["timestamp"].isoformat(),
+        "value": float(doc["valor"])
+    } for doc in cursor]
+
+    print("JSON enviado a Grafana (Aire):", data)
+
+    return jsonify({"MQ135_ADC": data})
+
+
+
+
+# ENDPOINT SOLO Lluvia YL-83
+
+
+@app.route('/json_api_rain', methods=['POST'])
+def json_api_rain():
+    cursor = Sensor1_collection.find(
+        {"sensor": "YL83_RAIN"},
+        {"sensor": 1, "valor": 1, "timestamp": 1, "_id": 0}
+    ).sort("timestamp", 1)
+
+    data = [{
+        "time": doc["timestamp"].isoformat(),
+        "value": float(doc["valor"])
+    } for doc in cursor]
+
+    print("JSON enviado a Grafana (Lluvia):", data)
+
+    return jsonify({"YL83_RAIN": data})
+
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
