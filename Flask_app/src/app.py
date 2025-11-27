@@ -109,7 +109,7 @@ def search_metrics():
 
 
 
-# /query → devuelve los valores para el sensor consultado
+# /query → devuelve datos para el sensor solicitado
 
 @app.route('/query', methods=['POST'])
 def query_data():
@@ -152,9 +152,7 @@ def query_data():
 
 
 
-
-# JSON_NORMAL PARA TEMP/HUM
-
+# JSON PARA GRAFANA JSON API
 
 @app.route('/json_api_data', methods=['POST', 'GET'])
 def json_api_data():
@@ -186,55 +184,13 @@ def json_api_data():
             "value": float(doc["valor"])
         })
 
-    print("JSON enviado a Grafana (Temp/Hum):", grouped)
+    print("JSON agrupado enviado a Grafana:", grouped)
 
     return jsonify(grouped)
 
 
 
-
-# ENDPOINT SOLO MQ135 (Aire)
-
-
-@app.route('/json_api_air', methods=['POST'])
-def json_api_air():
-    cursor = Sensor1_collection.find(
-        {"sensor": "MQ135_ADC"},
-        {"sensor": 1, "valor": 1, "timestamp": 1, "_id": 0}
-    ).sort("timestamp", 1)
-
-    data = [{
-        "time": doc["timestamp"].isoformat(),
-        "value": float(doc["valor"])
-    } for doc in cursor]
-
-    print("JSON enviado a Grafana (Aire):", data)
-
-    return jsonify({"MQ135_ADC": data})
-
-
-
-
-# ENDPOINT SOLO Lluvia YL-83
-
-
-@app.route('/json_api_rain', methods=['POST'])
-def json_api_rain():
-    cursor = Sensor1_collection.find(
-        {"sensor": "YL83_RAIN"},
-        {"sensor": 1, "valor": 1, "timestamp": 1, "_id": 0}
-    ).sort("timestamp", 1)
-
-    data = [{
-        "time": doc["timestamp"].isoformat(),
-        "value": float(doc["valor"])
-    } for doc in cursor]
-
-    print("JSON enviado a Grafana (Lluvia):", data)
-
-    return jsonify({"YL83_RAIN": data})
-
-
+# RUN
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
